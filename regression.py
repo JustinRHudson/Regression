@@ -48,7 +48,7 @@ class regression():
         if len(self.X.shape) == 1:
             MSE = (1.0/len(self.Y)) * np.sum((self.weights[:-1]*self.X + self.weights[-1] - self.Y)**2)
         else:
-            weighted_xs = np.array([self.weights[i]*self.X[i] for i in range(len(self.X.shape))])
+            weighted_xs = np.array([self.weights[i]*self.X[i] for i in range(self.X.shape[0])])
             MSE = (1.0/len(self.Y)) * np.sum((np.sum(weighted_xs,axis = 0) + self.weights[-1] - self.Y)**2)
 
         return MSE
@@ -354,6 +354,13 @@ class regression():
         print(f"Fit Complete, Elapsed Time (Seconds): {end_time - start_time:.2f}")
         print(f"Epochs Needed: {self.num_epochs}, {(self.num_epochs/self.max_iterations)*100:.1f}% of Max")
         print(f"Model R^2: {model_r2:.03f}, Model MSE: {model_mse:.03f}")
+
+        return None
+    
+    def feature_importance(self):
+        '''
+            Gauges the importances of features using permutation feature importance.
+        '''
 
         return None
     
