@@ -1,4 +1,10 @@
+# Imports Go Here
+# Public Libraries
 import numpy as np
+import warnings
+# Custom Libraries
+#import regression as reg
+
 import time
 
 # Let me define my regression class
@@ -87,12 +93,16 @@ class regression():
 
     
     def select_model(self):
-        model_dict = {'linear':self.linear_model,'linear_with_interaction':self.linear_interaction_model}
+        model_dict = {'linear':self.linear_model,'linear_with_interaction':self.linear_interaction_model,
+                      'logistic':self.logistic_model}
         if self.model_type in model_dict.keys():
             self.model = model_dict[self.model_type]
         else:
             raise ValueError("Invalid Model Type Entered. Options are linear and linear_with_interaction.")
     
+    '''
+        Functions for the Linear Model
+    '''
     def linear_model(self):
         #first define the number of weights needed
         if len(self.X.shape) == 2:
@@ -149,6 +159,10 @@ class regression():
                 best_mse_ind = np.where(np.array(self.fit_history) == np.nanmin(np.array(self.fit_history)))[0][0]
                 self.best_epoch = best_mse_ind
                 self.best_weights = self.weight_history[best_mse_ind]
+    
+    '''
+        Functions for the Linear Interaction Model
+    '''
         
     def linear_interaction_model(self):
         if len(self.X.shape) == 2:
@@ -231,8 +245,102 @@ class regression():
                 best_mse_ind = np.where(np.array(self.fit_history) == np.nanmin(np.array(self.fit_history)))[0][0]
                 self.best_epoch = best_mse_ind
                 self.best_weights = self.weight_history[best_mse_ind]
-        
+    '''
+        Functions for Logistic Regression
+    '''
+    def logistic_model(self):
+        if len(self.X.shape) == 2:
+            num_weights = self.X.shape[0]+1
+        else:
+            num_weights = 2
+        self.initialize_weights(num_weights)
 
+        return None
+    
+    def sigmoid(self,input):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sigma = 1. / (1. + np.exp(-1*input))
+
+        return sigma
+    
+    def logistic_gradient_descent(self):
+        #need to get the weighted_Xs
+        #calculate the gradients for each term on the X
+        #repeat for the bias term
+        #then increase the weights by learning rate times the gradient
+        #   - trying to maximize likelihood so opposite sign of least squares
+        if len(self.X.shape) == 1:
+            weight_gradient = np.sum( (self.Y - self.sigmoid(self.X*self.weights[0]+self.weights[-1])) *self.X)
+            y_int_gradient = np.sum( (self.Y - self.sigmoid(self.X*self.weights[0]+self.weights[-1])) )
+            self.weights[0] += self.learning_rate*weight_gradient
+            self.weights[-1] += self.learning_rate*y_int_gradient
+        else:
+            weight_gradients = np.empty(self.X.shape[0])
+            for i in range(len(weight_gradients)):
+                weighted_xs = np.array([self.weights[i]*self.X[i] for i in range(self.X.shape[0])])
+                weight_gradients[i] = np.dot(self.Y - self.sigmoid(np.sum(weighted_xs)+self.weights[-1]),self.X[i].T)
+            y_int_gradient = y_int_gradient = np.sum(self.Y - self.sigmoid(np.sum(weighted_xs)+self.weights[-1]))
+            for i in range(len(weight_gradients)):
+                self.weights[i] += self.learning_rate*weight_gradients[i]
+            self.weights[-1] += self.learning_rate*y_int_gradient
+
+        return None
+    
+    def fit_logistic_model(self):
+        self.logistic_model()
+        for i in range(self.max_iterations):
+            self.num_epochs+=1
+            self.logistic_gradient_descent()
+            self.update_weight_history()
+            if i % 10 == 0 and i != 0:
+                self.best_weights = self.weight_history[-1]
+                accuracy,precision = self.logistic_skill()
+                if accuracy > 1 - self.patience_pct and precision > 1 - self.patience_pct:
+                    break
+
+        
+        #can't really do patience w/ logistic regression so gotta go until the end
+        self.best_epoch = self.num_epochs - 1
+        self.best_weights = self.weight_history[-1]
+    
+    def get_true_false(self):
+        #First need to make a prediction on the training X
+        train_result_prediction = self.make_prediction(self.X)
+        #now compare those against self.Y and mark true/false pos and neg
+        true_pos = 0
+        true_neg = 0
+        false_pos = 0
+        false_neg = 0
+        for i in range(len(train_result_prediction)):
+            if train_result_prediction[i] == 1:
+                if self.Y[i] == 1:
+                    true_pos += 1
+                else:
+                    false_pos += 1
+            elif train_result_prediction[i] == 0:
+                if self.Y[i] == 0:
+                    true_neg += 1
+                else:
+                    false_neg += 1
+
+        return true_pos,true_neg,false_pos,false_neg
+    
+    def logistic_skill(self):
+        tp,tn,fp,fn = self.get_true_false()
+
+        accuracy = (tp+tn) / len(self.Y)
+        if tp == 0 and fp == 0:
+            precision = 0
+        else:
+            precision = (tp) / (tp + fp)
+
+        return accuracy,precision
+    
+    '''
+        Functions for Predictions/Model Results
+    '''
+        
     def make_prediction(self,pred_X):
         '''
             Given an already fit model generates a time series given a set of inputs.        
@@ -251,28 +359,43 @@ class regression():
                 prediction += self.best_weights[i+self.X.shape[0]] * pred_X[int_pred_pairs[i][0]] * pred_X[int_pred_pairs[i][1]]
             
             return prediction
+        elif self.model_type == 'logistic':
+            weights = np.dot(self.best_weights[:-1],pred_X) + self.best_weights[-1]
+            prediction = self.sigmoid(weights)
+            prediction[np.where(prediction >= 0.5)] = 1
+            prediction[np.where(prediction < 0.5)] = 0
+    
+            return prediction
         else:
             raise TypeError("Invalid Model Type Assigned to current model")
 
     def report_model_skill(self):
         '''Returns the r-squared and MSE of the model's regression onto the 
-        Y data it was trained on.
+        Y data it was trained on for linear models
+
+        Returns (r^2, mse)
         
-        Returns (r^2, mse)'''
+        For logistic models it reports how many correct classifications
+        numerically and percentage wise.
+        
+        '''
+        if self.model_type == 'linear' or self.model_type == 'linear_with_interaction':
+            model_prediction = self.make_prediction(self.X)
+            r_squared = np.corrcoef(self.Y,model_prediction)[0,1]**2
+            mse = self.calculate_MSE()
 
-        model_prediction = self.make_prediction(self.X)
-        r_squared = np.corrcoef(self.Y,model_prediction)[0,1]**2
-        mse = self.calculate_MSE()
+            return r_squared,mse
+        elif self.model_type == 'logistic':
 
-        return r_squared,mse
-    
+            return self.logistic_skill()
+
 
     def linear_model_weight_reporter(self):
         '''
             Reports the model weights for a linear model.
         '''
 
-        if self.model_type != 'linear':
+        if self.model_type != 'linear' and self.model_type != 'logistic':
             return -9999
     
         #check whether or not predictor names were given
@@ -333,6 +456,8 @@ class regression():
             names,weights = self.linear_model_weight_reporter()
         elif self.model_type == 'linear_with_interaction':
             names,weights = self.linear_interaction_weight_reporter()
+        elif self.model_type == 'logistic':
+            names,weights = self.linear_model_weight_reporter()
         
         print('Model Weight Summary Statistics:')
         print('--------------------------------')
@@ -342,6 +467,18 @@ class regression():
         
         return None
 
+    def end_fit_report(self):
+        if self.model_type == 'linear':
+            model_r2,model_mse = self.report_model_skill()
+            print(f"Model R^2: {model_r2:.03f}, Model MSE: {model_mse:.03f}")
+        elif self.model_type == 'linear_with_interaction':
+            model_r2,model_mse = self.report_model_skill()
+            print(f"Model R^2: {model_r2:.03f}, Model MSE: {model_mse:.03f}")
+        elif self.model_type == 'logistic':
+            accuracy,precision = self.report_model_skill()
+            print(f'Model Accuracy: {accuracy:.03f}, Model Precision: {precision:.03f}')
+
+
 
     def fit(self):
         start_time = time.time()
@@ -349,21 +486,11 @@ class regression():
             self.fit_linear_model()
         elif self.model_type == 'linear_with_interaction':
             self.fit_interaction_model()
+        elif self.model_type == 'logistic':
+            self.fit_logistic_model()
         end_time = time.time()
-        model_r2,model_mse = self.report_model_skill()
         print(f"Fit Complete, Elapsed Time (Seconds): {end_time - start_time:.2f}")
         print(f"Epochs Needed: {self.num_epochs}, {(self.num_epochs/self.max_iterations)*100:.1f}% of Max")
-        print(f"Model R^2: {model_r2:.03f}, Model MSE: {model_mse:.03f}")
+        self.end_fit_report()
 
         return None
-    
-    def feature_importance(self):
-        '''
-            Gauges the importances of features using permutation feature importance.
-        '''
-
-        return None
-    
-
-        
-        
